@@ -24,4 +24,4 @@ jobs:
           dataiku_project_key: ${{ vars.DATAIKU_PROJECT_KEY }}
           client_certificate: ${{ secrets.CLIENT_CERTIFICATE }}
           dataiku_infra_id_prod: ${{ vars.DATAIKU_INFRA_ID_PROD }}
-          run_tests_only: "false"
+          run_tests_only: "true"
