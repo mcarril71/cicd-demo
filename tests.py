@@ -24,7 +24,7 @@ def project(dss_client):
 
 def test_compute_recipe(project):
     """Test that the compute_test recipe runs successfully"""
-    recipe = project.get_recipe('compute_test')
+    recipe = project.get_recipe('flight_data_copy')
     try:
         recipe.run(wait=True, no_fail=False)
         assert True
