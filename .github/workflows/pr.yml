@@ -13,7 +13,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Run Dataiku GitOps Action
+      - name: Run Dataiku GitOps Action Test
         uses: mcarril71/dataiku-gitops@master
         with:
           python-script: "tests.py"
