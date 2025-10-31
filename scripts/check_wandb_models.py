@@ -6,8 +6,6 @@ from wandb.errors import CommError
 import dataikuapi
 from dataikuapi import DSSClient
 
-# --- CI-friendly: read all creds from env (set as GitHub Secrets) ---
-
 # Disable warnings for unverified HTTPS requests
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
