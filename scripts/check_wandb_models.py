@@ -6,34 +6,32 @@ from wandb.errors import CommError
 import dataikuapi
 from dataikuapi import DSSClient
 
-# --- CI-friendly: read all creds from env (set as GitHub Secrets) ---
-DATAIKU_INSTANCE_URL = os.getenv("DATAIKU_INSTANCE_URL")
-DATAIKU_API_KEY      = os.getenv("DATAIKU_API_KEY")
-DATAIKU_PROJECT_KEY  = os.getenv("DATAIKU_PROJECT_KEY")
+# Disable warnings for unverified HTTPS requests
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Access environment variables
+DATAIKU_API_TOKEN_DEV = os.getenv('DATAIKU_API_TOKEN_DEV')
+DATAIKU_API_TOKEN_STAGING = os.getenv('DATAIKU_API_TOKEN_PROD')
+DATAIKU_API_TOKEN_PROD = os.getenv('DATAIKU_API_TOKEN_PROD')
+DATAIKU_INSTANCE_DEV_URL = os.getenv('DATAIKU_INSTANCE_DEV_URL')
+DATAIKU_INSTANCE_STAGING_URL = os.getenv('DATAIKU_INSTANCE_PROD_URL')
+DATAIKU_INSTANCE_PROD_URL = os.getenv('DATAIKU_INSTANCE_PROD_URL')
+DATAIKU_PROJECT_KEY = os.getenv('DATAIKU_PROJECT_KEY')
+DATAIKU_INFRA_ID_STAGING = os.getenv('DATAIKU_INFRA_ID_PROD')
+DATAIKU_INFRA_ID_PROD = os.getenv('DATAIKU_INFRA_ID_PROD')
+RUN_TESTS_ONLY = os.getenv('RUN_TESTS_ONLY', 'false').lower() == 'true'
+PYTHON_SCRIPT = os.getenv('PYTHON_SCRIPT', 'tests.py')
+CLIENT_CERTIFICATE = os.getenv('CLIENT_CERTIFICATE', None)
+
 #WANDB_API_KEY        = os.getenv("WANDB_API_KEY")
 
-if not all([DATAIKU_INSTANCE_URL, DATAIKU_API_KEY, DATAIKU_PROJECT_KEY]):
-    missing = [k for k,v in {
-        "DATAIKU_INSTANCE_URL": DATAIKU_INSTANCE_URL,
-        "DATAIKU_API_KEY": DATAIKU_API_KEY,
-        "DATAIKU_PROJECT_KEY": DATAIKU_PROJECT_KEY,
-       # "WANDB_API_KEY": WANDB_API_KEY,
-    }.items() if not v]
-    raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
-
-# Optional: allow self-signed certs to the DSS URL (set to 'true' to enable)
-DISABLE_SSL_VERIFY = os.getenv("DISABLE_SSL_VERIFY", "false").lower() == "true"
-if DISABLE_SSL_VERIFY:
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Connect to DSS
-client = dataikuapi.DSSClient(DATAIKU_INSTANCE_URL, DATAIKU_API_KEY)
-if DISABLE_SSL_VERIFY and hasattr(client, "_session"):
-    client._session.verify = False  # not recommended for production
+client = dataikuapi.DSSClient(DATAIKU_INSTANCE_DEV_URL, DATAIKU_API_TOKEN_DEV, no_check_certificate=True, client_certificate=CLIENT_CERTIFICATE)
+
 
 project = client.get_project(DATAIKU_PROJECT_KEY)
 print(f"Connected to Dataiku project: {DATAIKU_PROJECT_KEY}")
-
 
 # --- Retrieve authentication info with secrets ---
 auth_info = client.get_auth_info(with_secrets=True)
@@ -44,9 +42,6 @@ for secret in auth_info.get("secrets", []):
         break
 if not secret_value:
     raise Exception("Secret 'wandbcred' not found")
-    
-# W&B login / API
-wandb.login(key=WANDB_API_KEY)
 
 
 # W&B login / API
