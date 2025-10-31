@@ -10,14 +10,14 @@ from dataikuapi import DSSClient
 DATAIKU_INSTANCE_URL = os.getenv("DATAIKU_INSTANCE_URL")
 DATAIKU_API_KEY      = os.getenv("DATAIKU_API_KEY")
 DATAIKU_PROJECT_KEY  = os.getenv("DATAIKU_PROJECT_KEY")
-WANDB_API_KEY        = os.getenv("WANDB_API_KEY")
+#WANDB_API_KEY        = os.getenv("WANDB_API_KEY")
 
-if not all([DATAIKU_INSTANCE_URL, DATAIKU_API_KEY, DATAIKU_PROJECT_KEY, WANDB_API_KEY]):
+if not all([DATAIKU_INSTANCE_URL, DATAIKU_API_KEY, DATAIKU_PROJECT_KEY]):
     missing = [k for k,v in {
         "DATAIKU_INSTANCE_URL": DATAIKU_INSTANCE_URL,
         "DATAIKU_API_KEY": DATAIKU_API_KEY,
         "DATAIKU_PROJECT_KEY": DATAIKU_PROJECT_KEY,
-        "WANDB_API_KEY": WANDB_API_KEY,
+       # "WANDB_API_KEY": WANDB_API_KEY,
     }.items() if not v]
     raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
 
@@ -34,6 +34,17 @@ if DISABLE_SSL_VERIFY and hasattr(client, "_session"):
 project = client.get_project(DATAIKU_PROJECT_KEY)
 print(f"Connected to Dataiku project: {DATAIKU_PROJECT_KEY}")
 
+
+# --- Retrieve authentication info with secrets ---
+auth_info = client.get_auth_info(with_secrets=True)
+secret_value = None
+for secret in auth_info.get("secrets", []):
+    if secret.get("key") == "wandbcred":
+        secret_value = secret.get("value")
+        break
+if not secret_value:
+    raise Exception("Secret 'wandbcred' not found")
+    
 # W&B login / API
 wandb.login(key=WANDB_API_KEY)
 api = wandb.Api()
