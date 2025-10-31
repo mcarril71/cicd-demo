@@ -1,16 +1,12 @@
-import hashlib
+# file: scripts/check_wandb_models.py
 import os
-import random
-import string
-import subprocess
-import sys
-import time
-import traceback
-from datetime import datetime
-from time import sleep
-
-import dataikuapi
 import urllib3
+import wandb
+from wandb.errors import CommError
+import dataikuapi
+from dataikuapi import DSSClient
+
+# --- CI-friendly: read all creds from env (set as GitHub Secrets) ---
 
 # Disable warnings for unverified HTTPS requests
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -29,149 +25,89 @@ RUN_TESTS_ONLY = os.getenv('RUN_TESTS_ONLY', 'false').lower() == 'true'
 PYTHON_SCRIPT = os.getenv('PYTHON_SCRIPT', 'tests.py')
 CLIENT_CERTIFICATE = os.getenv('CLIENT_CERTIFICATE', None)
 
-# Create Dataiku clients
-client_dev = dataikuapi.DSSClient(DATAIKU_INSTANCE_DEV_URL, DATAIKU_API_TOKEN_DEV, no_check_certificate=True, client_certificate=CLIENT_CERTIFICATE)
-client_staging = dataikuapi.DSSClient(DATAIKU_INSTANCE_STAGING_URL, DATAIKU_API_TOKEN_STAGING, no_check_certificate=True, client_certificate=CLIENT_CERTIFICATE)
-client_prod = dataikuapi.DSSClient(DATAIKU_INSTANCE_PROD_URL, DATAIKU_API_TOKEN_PROD, no_check_certificate=True, client_certificate=CLIENT_CERTIFICATE)
-
-def get_commit_id():
-    result = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, text=True)
-    return result.stdout.strip()
-
-def generate_bundle_id(commit_id):
-    return f"bundle_{commit_id[:8]}"
-
-def export_bundle(client, project_key, bundle_id, release_notes=None):
-    project = client.get_project(project_key)
-    project.export_bundle(bundle_id, release_notes)
-    return bundle_id
+#WANDB_API_KEY        = os.getenv("WANDB_API_KEY")
 
 
-def run_tests(script_path, instance_url, api_key, project_key):
-    """Run pytest with environment variables for Dataiku configuration."""
-    env = os.environ.copy()
-    env.update({
-        'DATAIKU_INSTANCE_URL': instance_url,
-        'DATAIKU_API_KEY': api_key,
-        'DATAIKU_PROJECT_KEY': project_key
-    })
-    
-    result = subprocess.run([
-        'pytest',
-        '-v',
-        script_path,
-        '--no-header',  # Minimize output noise
-        '--tb=short'    # Shorter traceback format
-    ], env=env, capture_output=True, text=True)
-    
-    # Print test output for visibility
-    print(result.stdout)
-    if result.stderr:
-        print(result.stderr)
-    
-    return result.returncode == 0
+# Connect to DSS
+client = dataikuapi.DSSClient(DATAIKU_INSTANCE_DEV_URL, DATAIKU_API_TOKEN_DEV, no_check_certificate=True, client_certificate=CLIENT_CERTIFICATE)
 
-def get_dataiku_latest_commit(client, project_key):
-    """Get the latest commit SHA from Dataiku project."""
-    project = client.get_project(project_key)
-    project_git = project.get_project_git()
-    
-    # Get the git log to find the latest commit
-    log = project_git.log(count=1)  # Get only the most recent commit
-    
-    if not log or 'entries' not in log or not log['entries']:
-        raise ValueError("No commit history found in Dataiku project")
-    
-    entry = log['entries'][0]
-    if 'commit' not in entry:
-        raise ValueError(f"No commit field found in log entry: {entry}")
-        
-    return entry['commit']
 
-def sync_dataiku_to_git(client, project_key):
-    """Push Dataiku changes to Git."""
-    project = client.get_project(project_key).get_project_git()
-    return project.push()
+project = client.get_project(DATAIKU_PROJECT_KEY)
+print(f"Connected to Dataiku project: {DATAIKU_PROJECT_KEY}")
 
-def get_git_sha():
-    """Get commits from origin/master."""
-    # First fetch to ensure we have latest
-    subprocess.run(['git', 'fetch', 'origin', 'master'], capture_output=True)
-    
-    # Get the first commit from origin/master
-    result = subprocess.run(['git', 'log', 'origin/master', '-n', '1', '--pretty=format:%H'], capture_output=True, text=True)
-    if result.returncode != 0:
-        raise ValueError("Failed to get commit from origin/master")
-    
-    return result.stdout.strip()
+# --- Retrieve authentication info with secrets ---
+auth_info = client.get_auth_info(with_secrets=True)
+secret_value = None
+for secret in auth_info.get("secrets", []):
+    if secret.get("key") == "wandbcred":
+        secret_value = secret.get("value")
+        break
+if not secret_value:
+    raise Exception("Secret 'wandbcred' not found")
 
-def deploy(infra_id):
-    """Deploy to production using bundle and deployer."""
-    print(f"Deployment started ...")
-    try:
-        commit_id = get_git_sha()
-        bundle_id = generate_bundle_id(commit_id)
-        project = client_dev.get_project(DATAIKU_PROJECT_KEY)
-        project.export_bundle(bundle_id)
-        
-        # Publish the bundle to the deployer
-        project.publish_bundle(bundle_id)
-        
-        # Get the deployer from the client and deploy
-        deployer = client_dev.get_projectdeployer()
-        deployment = deployer.create_deployment(
-            deployment_id=f"deploy_{bundle_id}",
-            project_key=DATAIKU_PROJECT_KEY,
-            infra_id=infra_id,
-            bundle_id=bundle_id
-        )
-        update = deployment.start_update()
-        update.wait_for_result()
-        
-        print(f"Successfully deployed bundle {bundle_id} to infra {infra_id}")
-        
-    except Exception as e:
-        print(f"Failed to deploy: {str(e)}")
-        raise e
 
-def main():
-    try:
-        print(f"Debug tring with main...")
-        dataiku_sha = get_dataiku_latest_commit(client_dev, DATAIKU_PROJECT_KEY)
-        git_sha = get_git_sha()
-        #if dataiku_sha != git_sha:
-         #   print(f"Dataiku commit SHA ({dataiku_sha}) doesn't match Git SHA ({git_sha})")
-         #   sync_dataiku_to_git(client_dev, DATAIKU_PROJECT_KEY)
-         #   print("Pushed Dataiku changes to Git. Restarting process.")
-         #   sys.exit(0)
+# W&B login / API
+wandb.login(key=WANDB_API_KEY)
+api = wandb.Api()
 
-        deploy(DATAIKU_INFRA_ID_STAGING)
+# List DSS saved models
+saved_model_ids = [sm["id"] for sm in project.list_saved_models()]
+if not saved_model_ids:
+    print("W&B DEBUG: No saved models found in Dataiku.")
+    exit(0)
 
-        # Run tests on Staging instance
-        if run_tests(PYTHON_SCRIPT, DATAIKU_INSTANCE_STAGING_URL, DATAIKU_API_TOKEN_STAGING, DATAIKU_PROJECT_KEY):
-            if RUN_TESTS_ONLY:
-                print("Tests passed in staging. Skipping deployment to production.")
-            else:
-                print("Tests passed in staging. Deploying to production.")
-                
-                # Replace bundle import/export with deployment
-                deploy(DATAIKU_INFRA_ID_PROD)
-                
-                # Run tests on Prod instance
-                if run_tests(PYTHON_SCRIPT, DATAIKU_INSTANCE_PROD_URL, DATAIKU_API_TOKEN_PROD, DATAIKU_PROJECT_KEY):
-                    print("Deployment and tests successful in production.")
-                else:
-                    print("Tests failed in production.")
-                    # Note: With this approach, rollback needs to be handled through Dataiku's deployment feature
-                    sys.exit(1)
+# Collect ALL W&B model artifacts once
+artifacts = []
+try:
+    for collection in api.registries().collections():
+        for artifact in collection.artifacts():
+            if artifact.type and artifact.type.lower() == "model":
+                artifacts.append({
+                    "collection": collection.name,
+                    "artifact": artifact.source_name,   # e.g. "dataiku-<sm>-<ver>:v0"
+                    "path": artifact.qualified_name     # e.g. "entity/project/artifact:version"
+                })
+except CommError as e:
+    raise RuntimeError(f"Failed to list W&B artifacts: {e}")
+
+artifact_names = [{"name": a["artifact"], "path": a["path"]} for a in artifacts]
+any_published = False
+
+for sm in saved_model_ids:
+    print("✅----- Checking Model(s) in Dataiku -----")
+    print(f"Dataiku Current Saved Model : {sm}")
+
+    model = project.get_saved_model(sm)
+    active_id = model.get_active_version()["id"]
+    _ = model.get_version_details(active_id)  # placeholder for future use
+
+    model_identifier = f"dataiku-{sm}-{active_id}"
+    print(f"Dataiku Model Identifier  : {model_identifier}")
+    print("----- Checking if Model exists in W&B -----")
+
+    candidate_artifacts = [a for a in artifact_names if model_identifier in a["name"]]
+
+    if not candidate_artifacts:
+        print("⚠️  No published W&B artifacts found for this model.\n")
+        continue
+
+    any_published = True
+    for art in candidate_artifacts:
+        wb_name_full = art["name"]               # e.g. "dataiku-4wUI1vp8-1702915444643:v0"
+        if ":" in wb_name_full:
+            wb_name_base, wb_version = wb_name_full.split(":", 1)
         else:
-            print("Tests failed in staging.")
-            sys.exit(1)
+            wb_name_base, wb_version = wb_name_full, None
 
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        traceback.print_exc()  # Print the stack trace
-        sys.exit(1)
+        print("✅ Published Model Found in W&B")
+        print(f"   Full Artifact Name : {wb_name_full}")
+        print(f"   Base Name          : {wb_name_base}")
+        print(f"   W&B Version        : {wb_version}")
+        print(f"   Registry Path      : {art['path']}")
+        print("------------------------------")
 
-if __name__ == '__main__':
-    main() 
+if not any_published:
+    print("🛑 W&B DEBUG: No models are published to W&B for any saved models.")
+    # Optional: make the CI fail if nothing is published
+    if os.getenv("FAIL_ON_NO_PUBLISH", "false").lower() == "true":
+        exit(1)
