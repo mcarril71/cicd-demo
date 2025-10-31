@@ -1,0 +1,39 @@
+# file: .github/workflows/wandb-check.yml
+name: Check W&B Model Artifacts
+
+on:
+  push:
+    branches:
+      - prod
+
+jobs:
+  run-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      # Map GitHub Secrets to env vars the script expects
+      DATAIKU_INSTANCE_URL: ${{ secrets.DATAIKU_INSTANCE_URL }}
+      DATAIKU_API_KEY: ${{ secrets.DATAIKU_API_KEY }}
+      DATAIKU_PROJECT_KEY: ${{ secrets.DATAIKU_PROJECT_KEY }}
+      WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
+      # Optional toggles
+      DISABLE_SSL_VERIFY: ${{ vars.DISABLE_SSL_VERIFY || 'false' }}
+      FAIL_ON_NO_PUBLISH: ${{ vars.FAIL_ON_NO_PUBLISH || 'false' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install wandb dataiku-api-client pandas urllib3
+
+      - name: Run W&B model check
+        run: python scripts/check_wandb_models.py
