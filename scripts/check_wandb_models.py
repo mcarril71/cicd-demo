@@ -47,6 +47,10 @@ if not secret_value:
     
 # W&B login / API
 wandb.login(key=WANDB_API_KEY)
+
+
+# W&B login / API
+wandb.login(key=secret_value)
 api = wandb.Api()
 
 # List DSS saved models
