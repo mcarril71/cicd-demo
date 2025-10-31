@@ -9,22 +9,10 @@ on:
 jobs:
   run-check:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    env:
-      # Map GitHub Secrets to env vars the script expects
-      DATAIKU_INSTANCE_URL: ${{ secrets.DATAIKU_INSTANCE_URL }}
-      DATAIKU_API_KEY: ${{ secrets.DATAIKU_API_KEY }}
-      DATAIKU_PROJECT_KEY: ${{ secrets.DATAIKU_PROJECT_KEY }}
-      WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
-      # Optional toggles
-      DISABLE_SSL_VERIFY: ${{ vars.DISABLE_SSL_VERIFY || 'false' }}
-      FAIL_ON_NO_PUBLISH: ${{ vars.FAIL_ON_NO_PUBLISH || 'false' }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
+      - name: Checkout code
+        uses: actions/checkout@v2
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -37,3 +25,23 @@ jobs:
 
       - name: Run W&B model check
         run: python scripts/check_wandb_models.py
+        with:
+          python-script: "tests.py"
+          dataiku_api_token_dev: ${{ secrets.DATAIKU_INSTANCE_DEV_CI_API_TOKEN }}
+          dataiku_api_token_prod: ${{ secrets.DATAIKU_INSTANCE_PROD_CI_API_TOKEN }}
+          dataiku_instance_dev_url: ${{ vars.DATAIKU_INSTANCE_DEV_URL }}
+          dataiku_instance_prod_url: ${{ vars.DATAIKU_INSTANCE_PROD_URL }}
+          dataiku_project_key: ${{ vars.DATAIKU_PROJECT_KEY }}
+          dataiku_infra_id_prod: ${{ vars.DATAIKU_INFRA_ID_PROD }}
+          client_certificate: ${{ secrets.CLIENT_CERTIFICATE }}
+          run_tests_only: "false"
+          # WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
+  
+   
+     
+  
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+     
